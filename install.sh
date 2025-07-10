@@ -88,3 +88,12 @@ if ! command -v jq &>/dev/null; then
   echo "ℹ️ Hinweis: Für detaillierte Minecraft-Ausgabe kannst du 'jq' installieren:"
   echo "    sudo apt install jq"
 fi
+
+
+    ;;
+  *)
+    echo "❌ Unbekannter Befehl: $1"
+    echo "Verfügbare Befehle: scan (default), update, uninstall"
+    exit 1
+    ;;
+esac
