@@ -1,5 +1,41 @@
 #!/bin/bash
+# portscan – einfacher Portscanner mit Update- und Uninstall-Funktion
 
+GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
+INSTALL_PATH="/usr/local/bin/portscan"
+
+# -------- Update-Befehl --------
+update_tool() {
+  echo "🔄 Lade neueste Version von GitHub..."
+  curl -sL "$GITHUB_URL" -o /tmp/portscan
+  chmod +x /tmp/portscan
+  sudo mv /tmp/portscan "$INSTALL_PATH"
+  echo "✅ Update abgeschlossen."
+  exit 0
+}
+
+# -------- Uninstall-Befehl --------
+uninstall_tool() {
+  echo "⚠️  Möchtest du 'portscan' wirklich entfernen? (j/N)"
+  read -r confirm
+  if [[ "$confirm" =~ ^[JjYy]$ ]]; then
+    sudo rm -f "$INSTALL_PATH"
+    echo "🗑️  'portscan' wurde entfernt."
+  else
+    echo "❎ Abgebrochen."
+  fi
+  exit 0
+}
+
+# -------- Befehlserkennung --------
+case "$1" in
+  update)
+    update_tool
+    ;;
+  uninstall)
+    uninstall_tool
+    ;;
+  ""|scan)
 set -e
 
 BIN_NAME="portscan"
