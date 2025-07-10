@@ -1,4 +1,70 @@
 #!/bin/bash
+# portscan-cli.sh - einfacher Portscanner mit Update und Hilfe
+
+GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
+INSTALL_PATH="/usr/local/bin/portscan"
+
+show_help() {
+  cat << EOF
+portscan - Ein einfacher Portscanner mit Dienst- und Minecraft-Erkennung
+
+Verwendung:
+  portscan [scan]         Starte Portscan (Standardbefehl)
+  portscan update         Aktualisiert das Tool von GitHub
+  portscan uninstall      Entfernt das Tool vom System
+  portscan -h, help       Zeigt diese Hilfe an
+
+EOF
+  exit 0
+}
+
+update_tool() {
+  echo "🔄 Lade neueste Version von GitHub..."
+  tmpfile=$(mktemp)
+  curl -sL "$GITHUB_URL" -o "$tmpfile" || {
+    echo "Fehler beim Herunterladen."
+    rm -f "$tmpfile"
+    exit 1
+  }
+  chmod +x "$tmpfile"
+  sudo mv "$tmpfile" "$INSTALL_PATH"
+  echo "✅ Update abgeschlossen."
+  exit 0
+}
+
+uninstall_tool() {
+  echo "⚠️ Möchtest du 'portscan' wirklich entfernen? (j/N)"
+  read -r confirm
+  if [[ "$confirm" =~ ^[JjYy]$ ]]; then
+    sudo rm -f "$INSTALL_PATH"
+    echo "🗑️ 'portscan' wurde entfernt."
+  else
+    echo "❎ Abgebrochen."
+  fi
+  exit 0
+}
+
+case "$1" in
+  update)
+    update_tool
+    ;;
+  uninstall)
+    uninstall_tool
+    ;;
+  -h|help)
+    show_help
+    ;;
+  ""|scan)
+    # --- Dein ursprünglicher Scan-Code startet hier ---
+    ;;
+  *)
+    echo "❌ Unbekannter Befehl: $1"
+    echo "Nutze 'portscan -h' für Hilfe."
+    exit 1
+    ;;
+esac
+
+# === Hier kommt dein gesamtes Scan-Skript ein ===
 
 read -p "Gib die IP-Adresse ein, die du scannen möchtest: " IP
 
@@ -39,7 +105,6 @@ check_port() {
   fi
 }
 
-# Parallel scan
 for ((port=START_PORT; port<=END_PORT; port++)); do
   echo -ne "Scanne Port $port...\r"
   check_port "$port" &
@@ -58,7 +123,6 @@ if [ ! -s "$OPEN_PORTS_FILE" ]; then
   exit 0
 fi
 
-# --- Minecraft-Check Funktion ---
 check_minecraft() {
   local port=$1
 
@@ -91,7 +155,6 @@ check_minecraft() {
   return 0
 }
 
-# --- Dienstbanner erkennen ---
 detect_service() {
   local port=$1
   local banner=$(echo -e "" | nc "$IP" "$port" -w 2 2>/dev/null | head -n 1)
@@ -117,13 +180,12 @@ detect_service() {
   fi
 }
 
-# --- Ausgabe ---
 echo -e "\nAnalyse der offenen Ports:"
 sort -n "$OPEN_PORTS_FILE" | while read port; do
   mc_json=$(check_minecraft "$port")
   if [[ $? -eq 0 && -n "$mc_json" ]]; then
     if command -v jq >/dev/null 2>&1; then
-	name=$(echo "$mc_json" | jq -r '.description // .description.text // .description.extra[0].text // "Minecraft Server"')
+      name=$(echo "$mc_json" | jq -r '.description // .description.text // .description.extra[0].text // "Minecraft Server"')
       players=$(echo "$mc_json" | jq -r '.players.online // 0')
       maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0')
       echo "  - Port $port: Minecraft Server - $name ($players/$maxplayers Spieler)"
