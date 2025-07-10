@@ -1,99 +1,85 @@
 #!/bin/bash
-# portscan – einfacher Portscanner mit Update- und Uninstall-Funktion
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
 INSTALL_PATH="/usr/local/bin/portscan"
 
-# -------- Update-Befehl --------
-update_tool() {
-  echo "🔄 Lade neueste Version von GitHub..."
-  curl -sL "$GITHUB_URL" -o /tmp/portscan
-  chmod +x /tmp/portscan
-  sudo mv /tmp/portscan "$INSTALL_PATH"
-  echo "✅ Update abgeschlossen."
-  exit 0
-}
+# Benötigte Pakete (netcat-openbsd statt nc für Ubuntu/Debian)
+REQUIRED_DEPS=(flock xxd jq)
+NETCAT_PKG=""
 
-# -------- Uninstall-Befehl --------
-uninstall_tool() {
-  echo "⚠️  Möchtest du 'portscan' wirklich entfernen? (j/N)"
-  read -r confirm
-  if [[ "$confirm" =~ ^[JjYy]$ ]]; then
-    sudo rm -f "$INSTALL_PATH"
-    echo "🗑️  'portscan' wurde entfernt."
+# Erkennen, welcher netcat-Paketname verwendet wird
+detect_netcat_pkg() {
+  if command -v apt >/dev/null 2>&1; then
+    NETCAT_PKG="netcat-openbsd"
+  elif command -v pacman >/dev/null 2>&1; then
+    NETCAT_PKG="gnu-netcat"
+  elif command -v dnf >/dev/null 2>&1; then
+    NETCAT_PKG="nmap-ncat"
   else
-    echo "❎ Abgebrochen."
+    NETCAT_PKG="netcat" # fallback
   fi
-  exit 0
 }
 
-# -------- Befehlserkennung --------
-case "$1" in
-  update)
-    update_tool
-    ;;
-  uninstall)
-    uninstall_tool
-    ;;
-  ""|scan)
-set -e
+install_dependencies() {
+  echo "🔍 Prüfe und installiere Abhängigkeiten..."
 
-BIN_NAME="portscan"
-TEMP_PATH="/tmp/$BIN_NAME"
-INSTALL_PATH="/usr/local/bin/$BIN_NAME"
-SCRIPT_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
+  detect_netcat_pkg
+  REQUIRED_DEPS+=("$NETCAT_PKG")
 
-echo "🔍 Überprüfe benötigte Tools..."
+  MISSING=()
 
-# Liste der benötigten Programme
-DEPS=(nc flock xxd)
+  for pkg in "${REQUIRED_DEPS[@]}"; do
+    if ! command -v "${pkg%%-*}" >/dev/null 2>&1; then
+      MISSING+=("$pkg")
+    fi
+  done
 
-# Optional: jq für JSON-Ausgabe
-OPTIONAL_DEPS=(jq)
-
-MISSING=()
-for dep in "${DEPS[@]}"; do
-  if ! command -v "$dep" &>/dev/null; then
-    MISSING+=("$dep")
+  if [ ${#MISSING[@]} -eq 0 ]; then
+    echo "✅ Alle Abhängigkeiten sind installiert."
+    return
   fi
-done
 
-if [ ${#MISSING[@]} -ne 0 ]; then
-  echo "📦 Installiere fehlende Pakete: ${MISSING[*]}"
+  echo "Benötigte Pakete werden installiert: ${MISSING[*]}"
 
-  if command -v apt &>/dev/null; then
+  if command -v apt >/dev/null 2>&1; then
     sudo apt update
     sudo apt install -y "${MISSING[@]}"
-  elif command -v pacman &>/dev/null; then
+  elif command -v pacman >/dev/null 2>&1; then
     sudo pacman -Sy --noconfirm "${MISSING[@]}"
-  elif command -v dnf &>/dev/null; then
+  elif command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y "${MISSING[@]}"
   else
-    echo "❌ Kein unterstützter Paketmanager gefunden. Bitte installiere diese Pakete manuell: ${MISSING[*]}"
+    echo "❌ Kein unterstützter Paketmanager gefunden. Bitte installiere manuell: ${MISSING[*]}"
     exit 1
   fi
-fi
+}
 
-echo "📥 Lade portscan-cli herunter..."
-curl -sL "$SCRIPT_URL" -o "$TEMP_PATH"
-
-chmod +x "$TEMP_PATH"
-echo "📦 Installiere nach $INSTALL_PATH..."
-sudo mv "$TEMP_PATH" "$INSTALL_PATH"
-
-echo "✅ Installation abgeschlossen. Du kannst jetzt 'portscan' im Terminal verwenden!"
-
-# Hinweis für jq
-if ! command -v jq &>/dev/null; then
-  echo "ℹ️ Hinweis: Für detaillierte Minecraft-Ausgabe kannst du 'jq' installieren:"
-  echo "    sudo apt install jq"
-fi
-
-
-    ;;
-  *)
-    echo "❌ Unbekannter Befehl: $1"
-    echo "Verfügbare Befehle: scan (default), update, uninstall"
+install_script() {
+  echo "⬇️ Lade portscan-cli.sh von GitHub..."
+  tmpfile=$(mktemp)
+  curl -sL "$GITHUB_URL" -o "$tmpfile" || {
+    echo "❌ Fehler beim Herunterladen."
+    rm -f "$tmpfile"
     exit 1
-    ;;
-esac
+  }
+
+  chmod +x "$tmpfile"
+
+  echo "⬆️ Installiere portscan nach $INSTALL_PATH (sudo benötigt)..."
+  sudo mv "$tmpfile" "$INSTALL_PATH" || {
+    echo "❌ Fehler beim Verschieben der Datei."
+    rm -f "$tmpfile"
+    exit 1
+  }
+
+  echo "✅ Installation abgeschlossen."
+  echo "Du kannst nun 'portscan' im Terminal verwenden."
+  echo "Mit 'portscan -h' bekommst du eine Übersicht der Befehle."
+}
+
+main() {
+  install_dependencies
+  install_script
+}
+
+main
