@@ -4,7 +4,7 @@ set -e
 
 BIN_NAME="portscan"
 INSTALL_PATH="/usr/local/bin/$BIN_NAME"
-SCRIPT_URL="https://raw.githubusercontent.com/<USER>/<REPO>/main/portscan-cli.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
 
 echo "Lade neueste Version von portscan-cli herunter..."
 
