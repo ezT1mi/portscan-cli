@@ -68,8 +68,7 @@ compare_versions() {
   #          compare_versions 1.0 1.1 --> 1 (1.0 < 1.1)
   local v1=(${1//./ })
   local v2=(${2//./ })
-  local len=$(( ${#v1[@]} > ${#v2[@]} ? ${#v1[@]} : ${#v2[@]} ))
-  for ((i=0; i<len; i++)); do
+  for ((i=0; i<${#v1[@]}; i++)); do
     local n1=${v1[i]:-0}
     local n2=${v2[i]:-0}
     if (( n1 > n2 )); then
@@ -82,17 +81,17 @@ compare_versions() {
 }
 
 check_for_update() {
-  # Lädt die Version von GitHub und vergleicht mit aktueller Script-Version
-  local latest_version
-  latest_version=$(curl -s "$GITHUB_VERSION_URL" || echo "")
-  if [[ -z "$latest_version" ]]; then
-    return
-  fi
-  compare_versions "$latest_version" "$VERSION"
-  if [[ $? -eq 1 ]]; then
-    echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION."
-    echo "   Aktualisieren mit: portscan update"
-    echo
+  if [ -f "$VERSION_FILE" ]; then
+    local latest_version
+    latest_version=$(cat "$VERSION_FILE" 2>/dev/null)
+    if [[ -n "$latest_version" ]]; then
+      compare_versions "$latest_version" "$VERSION"
+      if [[ $? -eq 1 ]]; then
+        echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION."
+        echo "   Aktualisieren mit: portscan update"
+        echo
+      fi
+    fi
   fi
 }
 
@@ -129,6 +128,11 @@ if [[ -z "$IP" ]]; then
 fi
 
 read -p "Gib die Port-Range ein (z.B. 20-80): " PORT_RANGE
+if [[ -z "$PORT_RANGE" ]]; then
+  echo "Keine Port-Range eingegeben. Abbruch."
+  exit 1
+fi
+
 if ! [[ "$PORT_RANGE" =~ ^[0-9]+-[0-9]+$ ]]; then
   echo "Ungültige Port-Range. Format muss z.B. 20-80 sein."
   exit 1
@@ -136,6 +140,11 @@ fi
 
 START_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f1)
 END_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f2)
+
+if ! [[ "$START_PORT" =~ ^[0-9]+$ ]] || ! [[ "$END_PORT" =~ ^[0-9]+$ ]]; then
+  echo "Portnummern müssen Zahlen sein."
+  exit 1
+fi
 
 if (( START_PORT > END_PORT )); then
   echo "Start-Port darf nicht größer als End-Port sein."
@@ -177,34 +186,24 @@ fi
 
 check_minecraft() {
   local port=$1
-
-  # Handshake Paket bauen (Minecraft Server List Ping v1)
-  local ip_len=${#IP}
-  local ip_hex=$(printf "%02x" $ip_len)
-  local ip_encoded=$(echo -n "$IP" | xxd -p)
-  local port_hex=$(printf '%04x' "$port")
-  local handshake_data="00f20f$ip_hex$ip_encoded$port_hex01"
-  local handshake_len=$(printf '%02x' $(( (${#handshake_data} / 2) )))
-  local handshake_packet="$handshake_len$handshake_data"
+  local ip_str="$IP"
+  local ip_len=$(printf "%s" "$ip_str" | wc -c)
+  local ip_hex=$(printf "%s" "$ip_str" | xxd -p -c 999)
+  local port_hex=$(printf '%04x' $port)
+  local handshake_hex="00f202$(printf '%02x' $ip_len)$ip_hex$port_hex"01
+  local handshake_len=$((${#handshake_hex} / 2))
+  local handshake_packet="$(printf '%02x' $handshake_len)$handshake_hex"
   local status_request="0100"
-
-  # Sende Handshake + Status Request
-  printf "%b" "$(echo -n "$handshake_packet$status_request" | xxd -r -p)" > .mc_ping_packet 2>/dev/null
-  local response
-  response=$(cat .mc_ping_packet | nc "$IP" "$port" -w 3 -N 2>/dev/null | xxd -p -c 9999)
+  echo "$handshake_packet$status_request" | xxd -r -p > .mc_ping_packet
+  local response=$(cat .mc_ping_packet | nc "$IP" "$port" -w 3 -N 2>/dev/null | xxd -p -c 9999)
   rm -f .mc_ping_packet
-
   if [[ -z "$response" ]]; then
     return 1
   fi
-
-  # Extrahiere JSON aus Response (zwischen { und })
-  local json_hex
-  json_hex=$(echo "$response" | grep -o -P '7b.*7d')
+  local json_hex=$(echo "$response" | grep -o -P '7b.*7d')
   if [[ -z "$json_hex" ]]; then
     return 1
   fi
-
   echo "$json_hex" | xxd -r -p 2>/dev/null
   return 0
 }
@@ -251,7 +250,7 @@ extract_mc_name() {
 
   local name
   name=$(echo "$json" | jq -r '
-    if (.description.text? != null and .description.text != "") then
+    if (.description.text? != null) then
       .description.text
     elif (.description.extra? and (.description.extra | type == "array")) then
       [.description.extra[].text] | join("")
@@ -269,19 +268,15 @@ extract_mc_name() {
 
 echo -e "\nAnalyse der offenen Ports:"
 sort -n "$OPEN_PORTS_FILE" | while read -r port; do
-  mc_json=$(check_minecraft "$port")
-  if [[ $? -eq 0 && -n "$mc_json" ]]; then
-    if command -v jq >/dev/null 2>&1; then
-      name=$(extract_mc_name "$mc_json")
-      players=$(echo "$mc_json" | jq -r '.players.online // 0' 2>/dev/null || echo "0")
-      maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0' 2>/dev/null || echo "0")
-      echo "  - Port $port: Minecraft Server - $name ($players/$maxplayers Spieler)"
-    else
-      echo "  - Port $port: Minecraft Server (JSON erkannt)"
-    fi
+  echo -n "Port $port offen: "
+
+  if check_minecraft "$port"; then
+    mc_json=$(check_minecraft "$port")
+    mc_name=$(extract_mc_name "$mc_json")
+    echo "Minecraft Server - $mc_name"
   else
     service=$(detect_service "$port")
-    echo "  - Port $port: $service"
+    echo "$service"
   fi
 done
 
