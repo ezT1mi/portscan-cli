@@ -1,7 +1,7 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.1.1"
-VERSION_NUM="1.1.1"
+VERSION="1.3"
+VERSION_NUM="1.3"
 
 VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
