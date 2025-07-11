@@ -3,22 +3,6 @@
 VERSION="1.1.1"
 VERSION_NUM="1.1.1"
 
-check_for_update() {
-  if [ -f "$VERSION_FILE" ]; then
-    local latest_version
-    latest_version=$(head -n1 "$VERSION_FILE" | tr -d ' \t\n\r')
-    if [[ -n "$latest_version" ]]; then
-      compare_versions "$latest_version" "$VERSION_NUM"
-      if [[ $? -eq 1 ]]; then
-        echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION_NUM."
-        echo "   Aktualisieren mit: portscan update"
-        echo
-      fi
-    fi
-  fi
-}
-
-
 VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
@@ -95,17 +79,18 @@ compare_versions() {
 check_for_update() {
   if [ -f "$VERSION_FILE" ]; then
     local latest_version
-    latest_version=$(cat "$VERSION_FILE" 2>/dev/null)
+    latest_version=$(head -n1 "$VERSION_FILE" | tr -d ' \t\n\r')
     if [[ -n "$latest_version" ]]; then
-      compare_versions "$latest_version" "$VERSION"
+      compare_versions "$latest_version" "$VERSION_NUM"
       if [[ $? -eq 1 ]]; then
-        echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION."
+        echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION_NUM."
         echo "   Aktualisieren mit: portscan update"
         echo
       fi
     fi
   fi
 }
+
 
 case "$1" in
   update)
