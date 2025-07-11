@@ -48,12 +48,7 @@ uninstall_tool() {
   exit 0
 }
 
-check_for_update() {
-  # Prüfe Github auf neue Version (nur Beispiel, da kein Versions-File)
-  # Hier könnte man z.B. die Datei auslesen und Version vergleichen.
-  # Wir lassen das erstmal leer oder erweitern später.
-  :
-}
+# Hauptprogrammstart
 
 case "$1" in
   update)
@@ -70,7 +65,7 @@ case "$1" in
     exit 0
     ;;
   ""|scan)
-    # Scan starten
+    # Starte Scan (geht weiter unten)
     ;;
   *)
     echo "❌ Unbekannter Befehl: $1"
@@ -78,6 +73,8 @@ case "$1" in
     exit 1
     ;;
 esac
+
+# Wenn wir bis hierher sind, dann Scan starten
 
 read -p "Gib die IP-Adresse ein, die du scannen möchtest: " IP
 
@@ -139,6 +136,10 @@ fi
 check_minecraft() {
   local port=$1
 
+  # Minecraft Ping Packet (Version 47 Protocol)
+  # siehe https://wiki.vg/Server_List_Ping
+  # wir bauen das Paket (Handshake + Status Request)
+
   local ip_str="$IP"
   local ip_len=$(printf "%s" "$ip_str" | wc -c)
   local ip_hex=$(printf "%s" "$ip_str" | xxd -p -c 999)
@@ -193,27 +194,17 @@ detect_service() {
   fi
 }
 
-# Helper-Funktion: Extrahiere Minecraft Server Namen robust
 extract_mc_name() {
   local json="$1"
-  # Prüfe ob .description ein String oder Objekt ist
-  # Wenn String, gib direkt aus
   local is_string
   is_string=$(echo "$json" | jq -e '.description | type == "string"' 2>/dev/null)
 
   if [[ $? -eq 0 && "$is_string" == "true" ]]; then
-    # description ist String
     echo "$json" | jq -r '.description'
   else
-    # description ist Objekt oder komplex, versuche verschachtelte Werte
-    # Beispiel: .description.text oder zusammengesetzt aus .description.extra[*].text
     local name
-
-    # Versuch 1: description.text
     name=$(echo "$json" | jq -r '.description.text // empty' 2>/dev/null)
-
     if [[ -z "$name" ]]; then
-      # Versuch 2: description.extra ist Array - kombiniere alle text-Felder
       name=$(echo "$json" | jq -r '
         if (.description.extra | type == "array") then
           [.description.extra[].text] | join("")
@@ -222,12 +213,9 @@ extract_mc_name() {
         end
       ' 2>/dev/null)
     fi
-
-    # Wenn noch leer, setze Standard
     if [[ -z "$name" ]]; then
       name="Minecraft Server"
     fi
-
     echo "$name"
   fi
 }
