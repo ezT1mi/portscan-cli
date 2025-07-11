@@ -1,6 +1,6 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.2"
+VERSION="1.1 - pre-alpha"
 VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
@@ -64,8 +64,6 @@ is_json_valid() {
 
 compare_versions() {
   # Gibt 0 zurück wenn v1 >= v2, 1 wenn v1 < v2
-  # Beispiel: compare_versions 1.1 1.0 --> 0 (1.1 >= 1.0)
-  #          compare_versions 1.0 1.1 --> 1 (1.0 < 1.1)
   local v1=(${1//./ })
   local v2=(${2//./ })
   for ((i=0; i<${#v1[@]}; i++)); do
@@ -141,8 +139,17 @@ fi
 START_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f1)
 END_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f2)
 
-if ! [[ "$START_PORT" =~ ^[0-9]+$ ]] || ! [[ "$END_PORT" =~ ^[0-9]+$ ]]; then
-  echo "Portnummern müssen Zahlen sein."
+# Debugausgabe (kann entfernt werden, wenn alles passt)
+# echo "DEBUG: START_PORT='$START_PORT'"
+# echo "DEBUG: END_PORT='$END_PORT'"
+
+if ! [[ "$START_PORT" =~ ^[0-9]+$ ]]; then
+  echo "Fehler: Start-Port ist keine gültige Zahl: '$START_PORT'"
+  exit 1
+fi
+
+if ! [[ "$END_PORT" =~ ^[0-9]+$ ]]; then
+  echo "Fehler: End-Port ist keine gültige Zahl: '$END_PORT'"
   exit 1
 fi
 
@@ -241,43 +248,33 @@ extract_mc_name() {
   fi
 
   local desc_type
-  desc_type=$(echo "$json" | jq -r '.description | type' 2>/dev/null)
+  desc_type=$(echo "$json" | jq -r '.description | type')
 
   if [[ "$desc_type" == "string" ]]; then
-    echo "$json" | jq -r '.description'
-    return
-  fi
-
-  local name
-  name=$(echo "$json" | jq -r '
-    if (.description.text? != null) then
-      .description.text
-    elif (.description.extra? and (.description.extra | type == "array")) then
-      [.description.extra[].text] | join("")
+    echo "Minecraft Server - MOTD: $(echo "$json" | jq -r '.description')"
+  elif [[ "$desc_type" == "object" ]]; then
+    local text
+    text=$(echo "$json" | jq -r '.description.text // empty')
+    if [[ -n "$text" ]]; then
+      echo "Minecraft Server - MOTD: $text"
     else
-      empty
-    end
-  ' 2>/dev/null)
-
-  if [[ -z "$name" ]]; then
-    name="Minecraft Server"
+      echo "Minecraft Server"
+    fi
+  else
+    echo "Minecraft Server"
   fi
-
-  echo "$name"
 }
 
-echo -e "\nAnalyse der offenen Ports:"
-sort -n "$OPEN_PORTS_FILE" | while read -r port; do
-  echo -n "Port $port offen: "
-
-  if check_minecraft "$port"; then
-    mc_json=$(check_minecraft "$port")
-    mc_name=$(extract_mc_name "$mc_json")
-    echo "Minecraft Server - $mc_name"
+echo "Offene Ports:"
+while read -r port; do
+  mc_json=$(check_minecraft "$port")
+  if [[ $? -eq 0 ]]; then
+    echo "Port $port offen - Minecraft Server erkannt"
+    extract_mc_name "$mc_json"
   else
-    service=$(detect_service "$port")
-    echo "$service"
+    echo "Port $port offen - $(detect_service "$port")"
   fi
-done
+done < "$OPEN_PORTS_FILE"
 
 rm -f "$OPEN_PORTS_FILE" "$OPEN_PORTS_FILE.lock"
+exit 0
