@@ -1,7 +1,7 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.3"
-VERSION_NUM="1.3"
+VERSION="1.4"
+VERSION_NUM="1.4"
 
 VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
@@ -14,11 +14,12 @@ show_help() {
 portscan - Ein einfacher Portscanner mit Dienst- und Minecraft-Erkennung
 
 Verwendung:
-  portscan [scan]         Starte Portscan (Standardbefehl)
-  portscan update         Aktualisiert das Tool von GitHub
-  portscan uninstall      Entfernt das Tool vom System
-  portscan -v, --version  Zeigt die installierte Version an
-  portscan -h, help       Zeigt diese Hilfe an
+  portscan [scan]                 Starte Portscan (Standardbefehl)
+  portscan update                 Aktualisiert das Tool von GitHub
+  portscan uninstall              Entfernt das Tool vom System
+  portscan -v, --version          Zeigt die installierte Version an
+  portscan -h, help               Zeigt diese Hilfe an
+  portscan port <IP> <Port>       Scannt einen einzelnen Port an der IP
 
 EOF
   exit 0
@@ -35,11 +36,10 @@ update_tool() {
     exit 1
   }
   
-  # Version vom neuen Skript auslesen
   new_version=$(grep -m1 '^VERSION=' "$tmpfile" | cut -d'"' -f2)
   if [[ -z "$new_version" ]]; then
     echo "Warnung: Konnte Versionsnummer im neuen Skript nicht finden."
-    new_version="$VERSION"  # Fallback auf aktuelle Variable im laufenden Skript
+    new_version="$VERSION"
   fi
   
   echo "$new_version" > /tmp/portscan.version.tmp
@@ -64,7 +64,6 @@ uninstall_tool() {
 }
 
 compare_versions() {
-  # Gibt 0 zurück wenn v1 >= v2, 1 wenn v1 < v2
   local v1=(${1//./ })
   local v2=(${2//./ })
   local len=$(( ${#v1[@]} > ${#v2[@]} ? ${#v1[@]} : ${#v2[@]} ))
@@ -95,6 +94,86 @@ check_for_update() {
   fi
 }
 
+check_minecraft() {
+  local ip=$1
+  local port=$2
+  local ip_len=$(printf "%s" "$ip" | wc -c)
+  local ip_hex=$(printf "%s" "$ip" | xxd -p -c 999)
+  local port_hex=$(printf '%04x' $port)
+  local handshake_hex="00f202$(printf '%02x' $ip_len)$ip_hex$port_hex"01
+  local handshake_len=$((${#handshake_hex} / 2))
+  local handshake_packet="$(printf '%02x' $handshake_len)$handshake_hex"
+  local status_request="0100"
+  echo "$handshake_packet$status_request" | xxd -r -p > .mc_ping_packet
+  local response=$(cat .mc_ping_packet | nc "$ip" "$port" -w 3 -N 2>/dev/null | xxd -p -c 9999)
+  rm -f .mc_ping_packet
+  if [[ -z "$response" ]]; then
+    return 1
+  fi
+  local json_hex=$(echo "$response" | grep -o -P '7b.*7d')
+  if [[ -z "$json_hex" ]]; then
+    return 1
+  fi
+  echo "$json_hex" | xxd -r -p 2>/dev/null
+  return 0
+}
+
+detect_service() {
+  local ip=$1
+  local port=$2
+  local banner=$(echo -e "" | nc "$ip" "$port" -w 2 2>/dev/null | head -n 1)
+  [[ -z "$banner" ]] && echo "Unbekannter Dienst" && return
+  local banner_lower=$(echo "$banner" | tr '[:upper:]' '[:lower:]')
+  if [[ "$banner_lower" =~ teamspeak ]]; then
+    echo "Teamspeak Server"
+  elif [[ "$banner_lower" =~ ssh ]]; then
+    echo "SSH Server"
+  elif [[ "$banner_lower" =~ ftp ]]; then
+    echo "FTP Server"
+  elif [[ "$banner_lower" =~ smtp ]]; then
+    echo "SMTP Server"
+  elif [[ "$banner_lower" =~ http ]]; then
+    echo "HTTP Server"
+  elif [[ "$banner_lower" =~ nginx ]]; then
+    echo "NGINX Webserver"
+  elif [[ "$banner_lower" =~ apache ]]; then
+    echo "Apache Webserver"
+  else
+    echo "Unbekannter Dienst"
+  fi
+}
+
+extract_mc_name() {
+  local json=$1
+  local name=$(echo "$json" | grep -oP '"name"\s*:\s*"\K[^"]+')
+  if [[ -z "$name" ]]; then
+    echo "Minecraft Server"
+  else
+    echo "Minecraft Server: $name"
+  fi
+}
+
+scan_single_port() {
+  local ip=$1
+  local port=$2
+  echo "Scanne Port $port an $ip ..."
+  if nc -z -w1 "$ip" "$port" 2>/dev/null; then
+    echo -n "Port $port: "
+    mc_json=$(check_minecraft "$ip" "$port")
+    if [[ -n "$mc_json" ]]; then
+      name=$(extract_mc_name "$mc_json")
+      echo "$name"
+    else
+      detect_service "$ip" "$port"
+    fi
+  else
+    echo "Port $port ist geschlossen."
+  fi
+  exit 0
+}
+
+# Hauptprogramm
+
 case "$1" in
   update)
     update_tool
@@ -108,6 +187,19 @@ case "$1" in
   -v|--version)
     echo "portscan Version $VERSION"
     exit 0
+    ;;
+  port)
+    # portscan port <IP> <Port>
+    if [[ -z "$2" || -z "$3" ]]; then
+      echo "Fehler: Für 'port' musst du IP und Port angeben."
+      echo "Beispiel: portscan port 192.168.1.1 22"
+      exit 1
+    fi
+    if ! [[ "$3" =~ ^[0-9]+$ ]]; then
+      echo "Fehler: Port muss eine Zahl sein."
+      exit 1
+    fi
+    scan_single_port "$2" "$3"
     ;;
   ""|scan)
     ;;
@@ -185,73 +277,15 @@ if [ ! -s "$OPEN_PORTS_FILE" ]; then
   exit 0
 fi
 
-check_minecraft() {
-  local port=$1
-  local ip_str="$IP"
-  local ip_len=$(printf "%s" "$ip_str" | wc -c)
-  local ip_hex=$(printf "%s" "$ip_str" | xxd -p -c 999)
-  local port_hex=$(printf '%04x' $port)
-  local handshake_hex="00f202$(printf '%02x' $ip_len)$ip_hex$port_hex"01
-  local handshake_len=$((${#handshake_hex} / 2))
-  local handshake_packet="$(printf '%02x' $handshake_len)$handshake_hex"
-  local status_request="0100"
-  echo "$handshake_packet$status_request" | xxd -r -p > .mc_ping_packet
-  local response=$(cat .mc_ping_packet | nc "$IP" "$port" -w 3 -N 2>/dev/null | xxd -p -c 9999)
-  rm -f .mc_ping_packet
-  if [[ -z "$response" ]]; then
-    return 1
-  fi
-  local json_hex=$(echo "$response" | grep -o -P '7b.*7d')
-  if [[ -z "$json_hex" ]]; then
-    return 1
-  fi
-  echo "$json_hex" | xxd -r -p 2>/dev/null
-  return 0
-}
-
-detect_service() {
-  local port=$1
-  local banner=$(echo -e "" | nc "$IP" "$port" -w 2 2>/dev/null | head -n 1)
-  [[ -z "$banner" ]] && echo "Unbekannter Dienst" && return
-  local banner_lower=$(echo "$banner" | tr '[:upper:]' '[:lower:]')
-  if [[ "$banner_lower" =~ teamspeak ]]; then
-    echo "Teamspeak Server"
-  elif [[ "$banner_lower" =~ ssh ]]; then
-    echo "SSH Server"
-  elif [[ "$banner_lower" =~ ftp ]]; then
-    echo "FTP Server"
-  elif [[ "$banner_lower" =~ smtp ]]; then
-    echo "SMTP Server"
-  elif [[ "$banner_lower" =~ http ]]; then
-    echo "HTTP Server"
-  elif [[ "$banner_lower" =~ nginx ]]; then
-    echo "NGINX Webserver"
-  elif [[ "$banner_lower" =~ apache ]]; then
-    echo "Apache Webserver"
-  else
-    echo "Unbekannter Dienst"
-  fi
-}
-
-extract_mc_name() {
-  local json=$1
-  local name=$(echo "$json" | grep -oP '"name"\s*:\s*"\K[^"]+')
-  if [[ -z "$name" ]]; then
-    echo "Minecraft Server"
-  else
-    echo "Minecraft Server: $name"
-  fi
-}
-
 echo "Offene Ports:"
 while read -r port; do
   echo -n "Port $port: "
-  mc_json=$(check_minecraft "$port")
+  mc_json=$(check_minecraft "$IP" "$port")
   if [[ -n "$mc_json" ]]; then
     name=$(extract_mc_name "$mc_json")
     echo "$name"
   else
-    detect_service "$port"
+    detect_service "$IP" "$port"
   fi
 done < "$OPEN_PORTS_FILE"
 
