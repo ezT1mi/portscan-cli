@@ -63,7 +63,7 @@ case "$1" in
     ;;
 esac
 
-# === Scan-Skript ===
+# === Scan beginnt ===
 
 read -p "Gib die IP-Adresse ein, die du scannen möchtest: " IP
 
@@ -187,16 +187,23 @@ sort -n "$OPEN_PORTS_FILE" | while read port; do
       name=$(echo "$mc_json" | jq -r '
         if (.description | type == "string") then
           .description
-        elif (.description.text? // "") != "" then
+        elif (.description.text? | type == "string") then
           .description.text
-        elif (.description.extra? != null) then
+        elif (.description.extra? | type == "array") then
           [.description.extra[]?.text] | join("")
         else
           "Minecraft Server"
         end
-      ')
-      players=$(echo "$mc_json" | jq -r '.players.online // 0')
-      maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0')
+      ' 2>/dev/null)
+
+      # Fallback, falls fehlerhaft oder leer
+      if [[ -z "$name" || "$name" =~ ^\{ ]]; then
+        name="Minecraft Server"
+      fi
+
+      players=$(echo "$mc_json" | jq -r '.players.online // 0' 2>/dev/null)
+      maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0' 2>/dev/null)
+
       echo "  - Port $port: Minecraft Server - $name ($players/$maxplayers Spieler)"
     else
       echo "  - Port $port: Minecraft Server (JSON erkannt)"
