@@ -19,16 +19,27 @@ EOF
 }
 
 update_tool() {
-  echo "🔄 Lade neueste Version von GitHub..."
+  echo "🗑️ Entferne alte Version von $INSTALL_PATH ..."
+  sudo rm -f "$INSTALL_PATH"
+
+  echo "⬇️ Lade neue Version von GitHub..."
   tmpfile=$(mktemp)
   curl -sL "$GITHUB_URL" -o "$tmpfile" || {
-    echo "Fehler beim Herunterladen."
+    echo "❌ Fehler beim Herunterladen der neuen Version."
     rm -f "$tmpfile"
     exit 1
   }
+
   chmod +x "$tmpfile"
-  sudo mv "$tmpfile" "$INSTALL_PATH"
-  echo "✅ Update abgeschlossen."
+
+  echo "⬆️ Installiere neue Version..."
+  sudo mv "$tmpfile" "$INSTALL_PATH" || {
+    echo "❌ Fehler beim Installieren."
+    rm -f "$tmpfile"
+    exit 1
+  }
+
+  echo "✅ Update abgeschlossen. Du kannst nun die neue Version verwenden."
   exit 0
 }
 
