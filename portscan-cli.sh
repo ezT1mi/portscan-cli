@@ -51,7 +51,6 @@ update_tool() {
   exit 0
 }
 
-
 uninstall_tool() {
   echo "⚠️ Möchtest du 'portscan' wirklich entfernen? (j/N)"
   read -r confirm
@@ -96,7 +95,6 @@ check_for_update() {
   fi
 }
 
-
 case "$1" in
   update)
     update_tool
@@ -131,9 +129,6 @@ fi
 
 read -p "Gib die Port-Range ein (z.B. 20-80): " PORT_RANGE
 
-# Debug-Ausgabe (optional, kann entfernt werden)
-# echo "DEBUG: PORT_RANGE='$PORT_RANGE'"
-
 if ! [[ "$PORT_RANGE" =~ ^[0-9]+-[0-9]+$ ]]; then
   echo "Ungültige Port-Range. Format muss z.B. 20-80 sein."
   exit 1
@@ -141,10 +136,6 @@ fi
 
 START_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f1)
 END_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f2)
-
-# Debug-Ausgabe (optional, kann entfernt werden)
-# echo "DEBUG: START_PORT='$START_PORT'"
-# echo "DEBUG: END_PORT='$END_PORT'"
 
 if ! [[ "$START_PORT" =~ ^[0-9]+$ ]]; then
   echo "Fehler: Start-Port ist keine gültige Zahl: '$START_PORT'"
@@ -255,8 +246,8 @@ extract_mc_name() {
 echo "Offene Ports:"
 while read -r port; do
   echo -n "Port $port: "
-  if check_minecraft "$port"; then
-    mc_json=$(check_minecraft "$port")
+  mc_json=$(check_minecraft "$port")
+  if [[ -n "$mc_json" ]]; then
     name=$(extract_mc_name "$mc_json")
     echo "$name"
   else
