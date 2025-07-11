@@ -29,23 +29,28 @@ update_tool() {
   sudo rm -f "$INSTALL_PATH" "$VERSION_FILE"
   echo "⬇️ Lade neueste Version von GitHub..."
   tmpfile=$(mktemp)
-  tmpverfile=$(mktemp)
   curl -sL "$GITHUB_URL" -o "$tmpfile" || {
     echo "Fehler beim Herunterladen des Scripts."
     rm -f "$tmpfile"
     exit 1
   }
-  curl -sL "$GITHUB_VERSION_URL" -o "$tmpverfile" || {
-    echo "Fehler beim Herunterladen der Versionsdatei."
-    rm -f "$tmpfile" "$tmpverfile"
-    exit 1
-  }
+  
+  # Version vom neuen Skript auslesen
+  new_version=$(grep -m1 '^VERSION=' "$tmpfile" | cut -d'"' -f2)
+  if [[ -z "$new_version" ]]; then
+    echo "Warnung: Konnte Versionsnummer im neuen Skript nicht finden."
+    new_version="$VERSION"  # Fallback auf aktuelle Variable im laufenden Skript
+  fi
+  
+  echo "$new_version" > /tmp/portscan.version.tmp
+
   chmod +x "$tmpfile"
   sudo mv "$tmpfile" "$INSTALL_PATH"
-  sudo mv "$tmpverfile" "$VERSION_FILE"
-  echo "✅ Update abgeschlossen auf Version $(cat "$VERSION_FILE")."
+  sudo mv /tmp/portscan.version.tmp "$VERSION_FILE"
+  echo "✅ Update abgeschlossen auf Version $new_version."
   exit 0
 }
+
 
 uninstall_tool() {
   echo "⚠️ Möchtest du 'portscan' wirklich entfernen? (j/N)"
