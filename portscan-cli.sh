@@ -1,6 +1,6 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.2"
+VERSION="1.1 - pre-alpha"
 VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
@@ -57,16 +57,12 @@ uninstall_tool() {
   exit 0
 }
 
-is_json_valid() {
-  echo "$1" | jq empty >/dev/null 2>&1
-  return $?
-}
-
 compare_versions() {
   # Gibt 0 zurück wenn v1 >= v2, 1 wenn v1 < v2
   local v1=(${1//./ })
   local v2=(${2//./ })
-  for ((i=0; i<${#v1[@]}; i++)); do
+  local len=$(( ${#v1[@]} > ${#v2[@]} ? ${#v1[@]} : ${#v2[@]} ))
+  for ((i=0; i<len; i++)); do
     local n1=${v1[i]:-0}
     local n2=${v2[i]:-0}
     if (( n1 > n2 )); then
@@ -126,10 +122,9 @@ if [[ -z "$IP" ]]; then
 fi
 
 read -p "Gib die Port-Range ein (z.B. 20-80): " PORT_RANGE
-if [[ -z "$PORT_RANGE" ]]; then
-  echo "Keine Port-Range eingegeben. Abbruch."
-  exit 1
-fi
+
+# Debug-Ausgabe (optional, kann entfernt werden)
+# echo "DEBUG: PORT_RANGE='$PORT_RANGE'"
 
 if ! [[ "$PORT_RANGE" =~ ^[0-9]+-[0-9]+$ ]]; then
   echo "Ungültige Port-Range. Format muss z.B. 20-80 sein."
@@ -139,7 +134,7 @@ fi
 START_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f1)
 END_PORT=$(echo "$PORT_RANGE" | cut -d'-' -f2)
 
-# Debugausgabe (kann entfernt werden, wenn alles passt)
+# Debug-Ausgabe (optional, kann entfernt werden)
 # echo "DEBUG: START_PORT='$START_PORT'"
 # echo "DEBUG: END_PORT='$END_PORT'"
 
@@ -240,39 +235,24 @@ detect_service() {
 }
 
 extract_mc_name() {
-  local json="$1"
-
-  if ! echo "$json" | jq empty >/dev/null 2>&1; then
+  local json=$1
+  local name=$(echo "$json" | grep -oP '"name"\s*:\s*"\K[^"]+')
+  if [[ -z "$name" ]]; then
     echo "Minecraft Server"
-    return
-  fi
-
-  local desc_type
-  desc_type=$(echo "$json" | jq -r '.description | type')
-
-  if [[ "$desc_type" == "string" ]]; then
-    echo "Minecraft Server - MOTD: $(echo "$json" | jq -r '.description')"
-  elif [[ "$desc_type" == "object" ]]; then
-    local text
-    text=$(echo "$json" | jq -r '.description.text // empty')
-    if [[ -n "$text" ]]; then
-      echo "Minecraft Server - MOTD: $text"
-    else
-      echo "Minecraft Server"
-    fi
   else
-    echo "Minecraft Server"
+    echo "Minecraft Server: $name"
   fi
 }
 
 echo "Offene Ports:"
 while read -r port; do
-  mc_json=$(check_minecraft "$port")
-  if [[ $? -eq 0 ]]; then
-    echo "Port $port offen - Minecraft Server erkannt"
-    extract_mc_name "$mc_json"
+  echo -n "Port $port: "
+  if check_minecraft "$port"; then
+    mc_json=$(check_minecraft "$port")
+    name=$(extract_mc_name "$mc_json")
+    echo "$name"
   else
-    echo "Port $port offen - $(detect_service "$port")"
+    detect_service "$port"
   fi
 done < "$OPEN_PORTS_FILE"
 
