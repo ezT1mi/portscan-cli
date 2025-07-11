@@ -1,5 +1,5 @@
 #!/bin/bash
-# portscan-cli.sh - einfacher Portscanner mit Update und Hilfe
+# portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
 INSTALL_PATH="/usr/local/bin/portscan"
@@ -55,7 +55,6 @@ case "$1" in
     show_help
     ;;
   ""|scan)
-    # --- Dein ursprünglicher Scan-Code startet hier ---
     ;;
   *)
     echo "❌ Unbekannter Befehl: $1"
@@ -64,7 +63,7 @@ case "$1" in
     ;;
 esac
 
-# === Hier kommt dein gesamtes Scan-Skript ein ===
+# === Scan-Skript ===
 
 read -p "Gib die IP-Adresse ein, die du scannen möchtest: " IP
 
@@ -185,7 +184,17 @@ sort -n "$OPEN_PORTS_FILE" | while read port; do
   mc_json=$(check_minecraft "$port")
   if [[ $? -eq 0 && -n "$mc_json" ]]; then
     if command -v jq >/dev/null 2>&1; then
-      name=$(echo "$mc_json" | jq -r '.description // .description.text // .description.extra[0].text // "Minecraft Server"')
+      name=$(echo "$mc_json" | jq -r '
+        if (.description | type == "string") then
+          .description
+        elif (.description.text? // "") != "" then
+          .description.text
+        elif (.description.extra? != null) then
+          [.description.extra[]?.text] | join("")
+        else
+          "Minecraft Server"
+        end
+      ')
       players=$(echo "$mc_json" | jq -r '.players.online // 0')
       maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0')
       echo "  - Port $port: Minecraft Server - $name ($players/$maxplayers Spieler)"
