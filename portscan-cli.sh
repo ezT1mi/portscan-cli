@@ -194,15 +194,12 @@ sort -n "$OPEN_PORTS_FILE" | while read port; do
         else
           "Minecraft Server"
         end
-      ' 2>/dev/null)
+      ' 2>/dev/null || echo "Minecraft Server")
 
-      # Fallback, falls fehlerhaft oder leer
-      if [[ -z "$name" || "$name" =~ ^\{ ]]; then
-        name="Minecraft Server"
-      fi
+      [[ -z "$name" || "$name" =~ ^\{ ]] && name="Minecraft Server"
 
-      players=$(echo "$mc_json" | jq -r '.players.online // 0' 2>/dev/null)
-      maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0' 2>/dev/null)
+      players=$(echo "$mc_json" | jq -r '.players.online // 0' 2>/dev/null || echo "0")
+      maxplayers=$(echo "$mc_json" | jq -r '.players.max // 0' 2>/dev/null || echo "0")
 
       echo "  - Port $port: Minecraft Server - $name ($players/$maxplayers Spieler)"
     else
