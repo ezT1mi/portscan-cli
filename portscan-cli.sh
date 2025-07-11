@@ -1,6 +1,6 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.0"
+VERSION="1.1.1"
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
 INSTALL_PATH="/usr/local/bin/portscan"
