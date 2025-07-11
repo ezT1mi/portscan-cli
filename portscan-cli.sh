@@ -1,8 +1,10 @@
 #!/bin/bash
 # portscan-cli.sh - einfacher Portscanner mit Dienst- und Minecraft-Erkennung
-VERSION="1.1.1"
+VERSION="1.1 - pre-alpha"
+VERSION_FILE="/usr/local/bin/portscan.version"  # Datei mit der aktuell installierten Versionsinfo (wird beim Update gesetzt)
 
 GITHUB_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/portscan-cli.sh"
+GITHUB_VERSION_URL="https://raw.githubusercontent.com/ezT1mi/portscan-cli/main/version.txt"
 INSTALL_PATH="/usr/local/bin/portscan"
 
 show_help() {
@@ -22,17 +24,24 @@ EOF
 
 update_tool() {
   echo "🔄 Entferne alte Version..."
-  sudo rm -f "$INSTALL_PATH"
+  sudo rm -f "$INSTALL_PATH" "$VERSION_FILE"
   echo "⬇️ Lade neueste Version von GitHub..."
   tmpfile=$(mktemp)
+  tmpverfile=$(mktemp)
   curl -sL "$GITHUB_URL" -o "$tmpfile" || {
-    echo "Fehler beim Herunterladen."
+    echo "Fehler beim Herunterladen des Scripts."
     rm -f "$tmpfile"
+    exit 1
+  }
+  curl -sL "$GITHUB_VERSION_URL" -o "$tmpverfile" || {
+    echo "Fehler beim Herunterladen der Versionsdatei."
+    rm -f "$tmpfile" "$tmpverfile"
     exit 1
   }
   chmod +x "$tmpfile"
   sudo mv "$tmpfile" "$INSTALL_PATH"
-  echo "✅ Update abgeschlossen."
+  sudo mv "$tmpverfile" "$VERSION_FILE"
+  echo "✅ Update abgeschlossen auf Version $(cat "$VERSION_FILE")."
   exit 0
 }
 
@@ -40,7 +49,7 @@ uninstall_tool() {
   echo "⚠️ Möchtest du 'portscan' wirklich entfernen? (j/N)"
   read -r confirm
   if [[ "$confirm" =~ ^[JjYy]$ ]]; then
-    sudo rm -f "$INSTALL_PATH"
+    sudo rm -f "$INSTALL_PATH" "$VERSION_FILE"
     echo "🗑️ 'portscan' wurde entfernt."
   else
     echo "❎ Abgebrochen."
@@ -48,7 +57,43 @@ uninstall_tool() {
   exit 0
 }
 
-# Hauptprogrammstart
+is_json_valid() {
+  echo "$1" | jq empty >/dev/null 2>&1
+  return $?
+}
+
+compare_versions() {
+  # Gibt 0 zurück wenn v1 >= v2, 1 wenn v1 < v2
+  # Beispiel: compare_versions 1.1 1.0 --> 0 (1.1 >= 1.0)
+  #          compare_versions 1.0 1.1 --> 1 (1.0 < 1.1)
+  local v1=(${1//./ })
+  local v2=(${2//./ })
+  for ((i=0; i<${#v1[@]}; i++)); do
+    local n1=${v1[i]:-0}
+    local n2=${v2[i]:-0}
+    if (( n1 > n2 )); then
+      return 0
+    elif (( n1 < n2 )); then
+      return 1
+    fi
+  done
+  return 0
+}
+
+check_for_update() {
+  if [ -f "$VERSION_FILE" ]; then
+    local latest_version
+    latest_version=$(cat "$VERSION_FILE" 2>/dev/null)
+    if [[ -n "$latest_version" ]]; then
+      compare_versions "$latest_version" "$VERSION"
+      if [[ $? -eq 1 ]]; then
+        echo "⚠️ Eine neue Version $latest_version ist verfügbar! Du nutzt $VERSION."
+        echo "   Aktualisieren mit: portscan update"
+        echo
+      fi
+    fi
+  fi
+}
 
 case "$1" in
   update)
@@ -65,7 +110,6 @@ case "$1" in
     exit 0
     ;;
   ""|scan)
-    # Starte Scan (geht weiter unten)
     ;;
   *)
     echo "❌ Unbekannter Befehl: $1"
@@ -74,17 +118,16 @@ case "$1" in
     ;;
 esac
 
-# Wenn wir bis hierher sind, dann Scan starten
+# Versionscheck vor Scan starten
+check_for_update
 
 read -p "Gib die IP-Adresse ein, die du scannen möchtest: " IP
-
 if [[ -z "$IP" ]]; then
   echo "Keine IP-Adresse eingegeben. Abbruch."
   exit 1
 fi
 
 read -p "Gib die Port-Range ein (z.B. 20-80): " PORT_RANGE
-
 if ! [[ "$PORT_RANGE" =~ ^[0-9]+-[0-9]+$ ]]; then
   echo "Ungültige Port-Range. Format muss z.B. 20-80 sein."
   exit 1
@@ -101,7 +144,6 @@ fi
 echo "Scanne IP $IP im Bereich $START_PORT-$END_PORT ..."
 MAX_JOBS=100
 OPEN_PORTS_FILE="open_ports.tmp"
-
 rm -f "$OPEN_PORTS_FILE"
 touch "$OPEN_PORTS_FILE"
 
@@ -123,7 +165,6 @@ for ((port=START_PORT; port<=END_PORT; port++)); do
     sleep 0.05
   done
 done
-
 wait
 echo -e "\nScan abgeschlossen."
 
@@ -135,36 +176,24 @@ fi
 
 check_minecraft() {
   local port=$1
-
-  # Minecraft Ping Packet (Version 47 Protocol)
-  # siehe https://wiki.vg/Server_List_Ping
-  # wir bauen das Paket (Handshake + Status Request)
-
   local ip_str="$IP"
   local ip_len=$(printf "%s" "$ip_str" | wc -c)
   local ip_hex=$(printf "%s" "$ip_str" | xxd -p -c 999)
-
-  local handshake_hex="00f202$(printf '%02x' $ip_len)$ip_hex$(printf '%04x' $port | sed 's/../& /' | awk '{print $1$2}')01"
+  local port_hex=$(printf '%04x' $port)
+  local handshake_hex="00f202$(printf '%02x' $ip_len)$ip_hex$port_hex"01
   local handshake_len=$((${#handshake_hex} / 2))
   local handshake_packet="$(printf '%02x' $handshake_len)$handshake_hex"
-
   local status_request="0100"
-
   echo "$handshake_packet$status_request" | xxd -r -p > .mc_ping_packet
-
   local response=$(cat .mc_ping_packet | nc "$IP" "$port" -w 3 -N 2>/dev/null | xxd -p -c 9999)
-
   rm -f .mc_ping_packet
-
   if [[ -z "$response" ]]; then
     return 1
   fi
-
   local json_hex=$(echo "$response" | grep -o -P '7b.*7d')
   if [[ -z "$json_hex" ]]; then
     return 1
   fi
-
   echo "$json_hex" | xxd -r -p 2>/dev/null
   return 0
 }
@@ -173,7 +202,6 @@ detect_service() {
   local port=$1
   local banner=$(echo -e "" | nc "$IP" "$port" -w 2 2>/dev/null | head -n 1)
   [[ -z "$banner" ]] && echo "Unbekannter Dienst" && return
-
   local banner_lower=$(echo "$banner" | tr '[:upper:]' '[:lower:]')
   if [[ "$banner_lower" =~ teamspeak ]]; then
     echo "Teamspeak Server"
@@ -196,28 +224,36 @@ detect_service() {
 
 extract_mc_name() {
   local json="$1"
-  local is_string
-  is_string=$(echo "$json" | jq -e '.description | type == "string"' 2>/dev/null)
 
-  if [[ $? -eq 0 && "$is_string" == "true" ]]; then
-    echo "$json" | jq -r '.description'
-  else
-    local name
-    name=$(echo "$json" | jq -r '.description.text // empty' 2>/dev/null)
-    if [[ -z "$name" ]]; then
-      name=$(echo "$json" | jq -r '
-        if (.description.extra | type == "array") then
-          [.description.extra[].text] | join("")
-        else
-          empty
-        end
-      ' 2>/dev/null)
-    fi
-    if [[ -z "$name" ]]; then
-      name="Minecraft Server"
-    fi
-    echo "$name"
+  if ! echo "$json" | jq empty >/dev/null 2>&1; then
+    echo "Minecraft Server"
+    return
   fi
+
+  local desc_type
+  desc_type=$(echo "$json" | jq -r '.description | type' 2>/dev/null)
+
+  if [[ "$desc_type" == "string" ]]; then
+    echo "$json" | jq -r '.description'
+    return
+  fi
+
+  local name
+  name=$(echo "$json" | jq -r '
+    if (.description.text? != null) then
+      .description.text
+    elif (.description.extra? and (.description.extra | type == "array")) then
+      [.description.extra[].text] | join("")
+    else
+      empty
+    end
+  ' 2>/dev/null)
+
+  if [[ -z "$name" ]]; then
+    name="Minecraft Server"
+  fi
+
+  echo "$name"
 }
 
 echo -e "\nAnalyse der offenen Ports:"
